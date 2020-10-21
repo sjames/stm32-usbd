@@ -96,21 +96,31 @@ impl<USB: UsbPeripheral> usb_device::bus::UsbBus for UsbBus<USB> {
             };
 
             match ep_dir {
+                // Force the use of double buffering if Isochronous Type is used. This is to avoid changing
+                // the usb-device interfaces
                 UsbDirection::Out if !ep.is_out_buf_set() => {
                     let (out_size, size_bits) = calculate_count_rx(max_packet_size as usize)?;
+                    let buffer0 = self.ep_allocator.allocate_buffer(out_size)?;
 
-                    let buffer = self.ep_allocator.allocate_buffer(out_size)?;
-
-                    ep.set_out_buf(buffer, size_bits);
+                    if ep_type == EndpointType::Isochronous {
+                        let buffer1 = self.ep_allocator.allocate_buffer(out_size)?;
+                        ep.set_out_buf_double(buffer0, buffer1, size_bits);
+                    } else {
+                        ep.set_out_buf(buffer0, size_bits);
+                    }
 
                     return Ok(EndpointAddress::from_parts(index, ep_dir));
                 }
                 UsbDirection::In if !ep.is_in_buf_set() => {
                     let size = (max_packet_size as usize + 1) & !0x01;
+                    let buffer0 = self.ep_allocator.allocate_buffer(size)?;
 
-                    let buffer = self.ep_allocator.allocate_buffer(size)?;
-
-                    ep.set_in_buf(buffer);
+                    if ep_type == EndpointType::Isochronous {
+                        let buffer1 = self.ep_allocator.allocate_buffer(size)?;
+                        ep.set_in_buf_double(buffer0, buffer1);
+                    } else {
+                        ep.set_in_buf(buffer0);
+                    }
 
                     return Ok(EndpointAddress::from_parts(index, ep_dir));
                 }
