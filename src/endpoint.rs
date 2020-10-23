@@ -22,7 +22,7 @@ pub struct Endpoint<USB> {
     ep_type: Option<EndpointType>,
     double_buff: bool,
     index: u8,
-    buffer_index : u8,
+    buffer_index : Option<u8>,
     _marker: PhantomData<USB>,
 }
 
@@ -47,7 +47,7 @@ pub fn calculate_count_rx(mut size: usize) -> Result<(usize, u16)> {
 }
 
 // ugly - but this is temporary
-static mut g_next_buffer_index : u8 = 1;
+static mut g_next_buffer_index : u8 = 1; // start from 1 
 
 fn get_next_buffer_index() -> u8 {
     unsafe {
@@ -68,7 +68,7 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
             ep_type: None,
             double_buff: false,
             index,
-            buffer_index : 0,
+            buffer_index : None,
             _marker: PhantomData,
         }
     }
@@ -86,8 +86,10 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     pub fn set_out_buf_double(&mut self, buffer0: EndpointBuffer<USB>, buffer1: EndpointBuffer<USB>, size_bits: u16) {
-        self.buffer_index = get_next_buffer_index();
-        let _ = get_next_buffer_index(); //
+        if self.buffer_index.is_none() {
+            self.buffer_index = Some(get_next_buffer_index());
+            let _ = get_next_buffer_index(); //
+            }
 
         let offset = buffer0.offset();
         self.out_buf[0] = Some(Mutex::new(buffer0));
@@ -107,8 +109,11 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     pub fn set_out_buf(&mut self, buffer: EndpointBuffer<USB>, size_bits: u16) {
-
-        self.buffer_index = self.index; //get_next_buffer_index();
+        if self.buffer_index.is_none() {
+            if self.index == 0 { self.buffer_index = Some(0)} else {
+                self.buffer_index = Some(get_next_buffer_index());
+            }    
+        }
 
         let offset = buffer.offset();
         self.out_buf[0] = Some(Mutex::new(buffer));
@@ -124,8 +129,10 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     pub fn set_in_buf_double(&mut self, buffer0: EndpointBuffer<USB>, buffer1: EndpointBuffer<USB>) {
-        self.buffer_index = get_next_buffer_index();
-        let _ = get_next_buffer_index(); //
+        if self.buffer_index.is_none() {
+            self.buffer_index = Some(get_next_buffer_index());
+            let _ = get_next_buffer_index();
+        }
 
         let offset = buffer0.offset();
         self.in_buf[0] = Some(Mutex::new(buffer0));
@@ -145,7 +152,11 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     pub fn set_in_buf(&mut self, buffer: EndpointBuffer<USB>) {
-        self.buffer_index = self.index; //get_next_buffer_index();
+        if self.buffer_index.is_none() {
+            if self.index == 0 { self.buffer_index = Some(0)} else {
+                self.buffer_index = Some(get_next_buffer_index());
+            }
+        }
 
         let offset = buffer.offset();
         self.in_buf[0] = Some(Mutex::new(buffer));
@@ -156,7 +167,7 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     fn descr(&self) -> BufferDescriptor<USB> {
-        EndpointMemoryAllocator::<USB>::buffer_descriptor(self.buffer_index)
+        EndpointMemoryAllocator::<USB>::buffer_descriptor(self.buffer_index.unwrap())
     }
 
     fn reg(&self) -> &'static usb::EPR {
