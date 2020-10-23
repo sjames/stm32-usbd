@@ -22,6 +22,7 @@ pub struct Endpoint<USB> {
     ep_type: Option<EndpointType>,
     double_buff: bool,
     index: u8,
+    buffer_index : u8,
     _marker: PhantomData<USB>,
 }
 
@@ -45,6 +46,20 @@ pub fn calculate_count_rx(mut size: usize) -> Result<(usize, u16)> {
     }
 }
 
+// ugly - but this is temporary
+static mut g_next_buffer_index : u8 = 1;
+
+fn get_next_buffer_index() -> u8 {
+    unsafe {
+        if g_next_buffer_index > 7 {
+            panic!("Cannot allocate buffer for EP");
+        }
+        let index = g_next_buffer_index;
+        g_next_buffer_index += 1;
+        index
+    }
+}
+
 impl<USB: UsbPeripheral> Endpoint<USB> {
     pub fn new(index: u8) -> Self {
         Self {
@@ -53,6 +68,7 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
             ep_type: None,
             double_buff: false,
             index,
+            buffer_index : 0,
             _marker: PhantomData,
         }
     }
@@ -70,6 +86,9 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     pub fn set_out_buf_double(&mut self, buffer0: EndpointBuffer<USB>, buffer1: EndpointBuffer<USB>, size_bits: u16) {
+        self.buffer_index = get_next_buffer_index();
+        let _ = get_next_buffer_index(); //
+
         let offset = buffer0.offset();
         self.out_buf[0] = Some(Mutex::new(buffer0));
 
@@ -80,19 +99,24 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
         let offset = buffer1.offset();
         self.out_buf[1] = Some(Mutex::new(buffer1));
 
-        descr.addr_rx().set(offset);
-        descr.count_rx().set(size_bits);
+        descr.addr_tx().set(offset);
+        descr.count_tx().set(size_bits);
 
         self.double_buff = true;
+
     }
 
     pub fn set_out_buf(&mut self, buffer: EndpointBuffer<USB>, size_bits: u16) {
+
+        self.buffer_index = self.index; //get_next_buffer_index();
+
         let offset = buffer.offset();
         self.out_buf[0] = Some(Mutex::new(buffer));
 
         let descr = self.descr();
         descr.addr_rx().set(offset);
         descr.count_rx().set(size_bits);
+        
     }
 
     pub fn is_in_buf_set(&self) -> bool {
@@ -100,6 +124,9 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     pub fn set_in_buf_double(&mut self, buffer0: EndpointBuffer<USB>, buffer1: EndpointBuffer<USB>) {
+        self.buffer_index = get_next_buffer_index();
+        let _ = get_next_buffer_index(); //
+
         let offset = buffer0.offset();
         self.in_buf[0] = Some(Mutex::new(buffer0));
 
@@ -110,13 +137,16 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
         let offset = buffer1.offset();
         self.in_buf[1] = Some(Mutex::new(buffer1));
 
-        descr.addr_tx().set(offset);
-        descr.count_tx().set(0);
+        //let descr = self.descr(1);
+        descr.addr_rx().set(offset);
+        descr.count_rx().set(0);
 
         self.double_buff = true;
     }
 
     pub fn set_in_buf(&mut self, buffer: EndpointBuffer<USB>) {
+        self.buffer_index = self.index; //get_next_buffer_index();
+
         let offset = buffer.offset();
         self.in_buf[0] = Some(Mutex::new(buffer));
 
@@ -126,7 +156,7 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
     }
 
     fn descr(&self) -> BufferDescriptor<USB> {
-        EndpointMemoryAllocator::<USB>::buffer_descriptor(self.index)
+        EndpointMemoryAllocator::<USB>::buffer_descriptor(self.buffer_index)
     }
 
     fn reg(&self) -> &'static usb::EPR {
@@ -195,12 +225,19 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
             }
 
             match reg.read().stat_tx().bits().into() {
-                EndpointStatus::Valid | EndpointStatus::Disabled => return Err(UsbError::WouldBlock),
+                EndpointStatus::Disabled => return Err(UsbError::WouldBlock),
+                // Isochronous endpoints are set to disabled after transfer is done, so this is not an error for ISO endpoints
+                EndpointStatus::Valid if self.ep_type.unwrap() != EndpointType::Isochronous => return Err(UsbError::WouldBlock),
                 _ => {}
             };
 
             in_buf.write(buf);
-            self.descr().count_tx().set(buf.len() as u16);
+
+            if index == 0 {
+                self.descr().count_tx().set(buf.len() as u16);
+            } else if index == 1 {
+                self.descr().count_rx().set(buf.len() as u16);
+            }
 
             self.set_stat_tx(cs, EndpointStatus::Valid);
 
@@ -232,7 +269,15 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
 
             self.clear_ctr_rx(cs);
 
-            let count = (self.descr().count_rx().get() & 0x3ff) as usize;
+            let count: usize = if index == 0 {
+                (self.descr().count_rx().get() & 0x3ff) as usize
+            } else if index == 1 {
+                (self.descr().count_tx().get() & 0x3ff) as usize
+            } else {
+                panic!("Unexpected index");
+            };
+
+            //let count = (self.descr(index as u8).count_rx().get() & 0x3ff) as usize;
             if count > buf.len() {
                 return Err(UsbError::BufferOverflow);
             }

@@ -108,20 +108,18 @@ impl<USB: UsbPeripheral> usb_device::bus::UsbBus for UsbBus<USB> {
                     } else {
                         ep.set_out_buf(buffer0, size_bits);
                     }
-
                     return Ok(EndpointAddress::from_parts(index, ep_dir));
                 }
                 UsbDirection::In if !ep.is_in_buf_set() => {
                     let size = (max_packet_size as usize + 1) & !0x01;
                     let buffer0 = self.ep_allocator.allocate_buffer(size)?;
 
-                    if ep_type == EndpointType::Isochronous {
+                    if  ep_type == EndpointType::Isochronous  {
                         let buffer1 = self.ep_allocator.allocate_buffer(size)?;
                         ep.set_in_buf_double(buffer0, buffer1);
                     } else {
                         ep.set_in_buf(buffer0);
                     }
-
                     return Ok(EndpointAddress::from_parts(index, ep_dir));
                 }
                 _ => {}
@@ -272,12 +270,18 @@ impl<USB: UsbPeripheral> usb_device::bus::UsbBus for UsbBus<USB> {
 
             let ep = &self.endpoints[ep_addr.index()];
 
-            match (stalled, ep_addr.direction()) {
-                (true, UsbDirection::In) => ep.set_stat_tx(cs, EndpointStatus::Stall),
-                (true, UsbDirection::Out) => ep.set_stat_rx(cs, EndpointStatus::Stall),
-                (false, UsbDirection::In) => ep.set_stat_tx(cs, EndpointStatus::Nak),
-                (false, UsbDirection::Out) => ep.set_stat_rx(cs, EndpointStatus::Valid),
-            };
+            // Isochronous EPs cannoted be Stalled as there are no 
+            // handshakes. 
+            if let Some(EndpointType::Isochronous) = ep.ep_type() {
+                //do nothing
+            } else {
+                match (stalled, ep_addr.direction()) {
+                    (true, UsbDirection::In) => ep.set_stat_tx(cs, EndpointStatus::Stall),
+                    (true, UsbDirection::Out) => ep.set_stat_rx(cs, EndpointStatus::Stall),
+                    (false, UsbDirection::In) => ep.set_stat_tx(cs, EndpointStatus::Nak),
+                    (false, UsbDirection::Out) => ep.set_stat_rx(cs, EndpointStatus::Valid),
+                };
+            }
         });
     }
 
