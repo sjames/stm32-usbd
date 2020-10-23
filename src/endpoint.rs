@@ -226,7 +226,7 @@ impl<USB: UsbPeripheral> Endpoint<USB> {
 
             match reg.read().stat_tx().bits().into() {
                 EndpointStatus::Disabled => return Err(UsbError::WouldBlock),
-                // Isochronous endpoints are set to disabled after transfer is done, so this is not an error for ISO endpoints
+                // Isochronous endpoints have no handshakes, so this is not an error for ISO endpoints
                 EndpointStatus::Valid if self.ep_type.unwrap() != EndpointType::Isochronous => return Err(UsbError::WouldBlock),
                 _ => {}
             };
