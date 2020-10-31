@@ -12,7 +12,13 @@ keywords = ["no-std", "embedded", "usb"]
 [dependencies]
 vcell = "0.1.2"
 cortex-m = "0.6.1"
-usb-device = "0.2.3"
+#usb-device = "0.2.3"
+#usb-device = {path = "../usb-device"}
+usb-device = {git = "https://github.com/sjames/usb-device.git"}
+
+#[dependencies.defmt]
+#git = "https://github.com/knurling-rs/defmt"
+#branch = "main"
 
 [dev-dependencies]
 stm32f1xx-hal = { version = "0.4.0", features = ["stm32f103"] }
@@ -21,3 +27,14 @@ stm32f1xx-hal = { version = "0.4.0", features = ["stm32f103"] }
 # USB RAM access scheme
 ram_access_1x16 = []
 ram_access_2x16 = []
+#default = [
+#  "defmt-default",
+#  # "dependency-a/defmt-trace",
+#]
+
+#defmt-default = []
+#defmt-trace = []
+#defmt-debug = []
+#defmt-info = []
+#defmt-warn = []
+#defmt-error = []
